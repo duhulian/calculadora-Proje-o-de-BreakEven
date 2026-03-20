@@ -845,7 +845,7 @@ function updateFunil(m, inv) {
   upFbar('fb-mql', m.mqls);
   upFbar('fb-sql', m.sqls);
   upFbar('fb-vd', m.vendas);
-  set('fn-lead', fmt(leads,0));
+  set('fn-lead', fmt(m.leads,0));
   set('fn-mql', fmt(m.mqls,1));
   set('fn-sql', fmt(m.sqls,1));
   set('fn-vd', fmt(m.vendas,2));
@@ -1090,18 +1090,30 @@ function trocarTab(id, btn) {
 function exportCSV() {
   const meses = [];
   const investimentos = getFeesMidias();
-  const params = {leads:m.leads.toFixed(1),cpl:fv('cpl'),txLM:fv('txLeadMQL')/100,txMS:fv('txMQLSQL')/100,txSV:fv('txSQLVenda')/100,ticket:fv('ticket'),mc:fv('mc')/100,aliq:getAliq()};
-  const monI=parseInt(sv('mesInicio')||'1',10);
-  const anoI=2025;
+  const params = {cpl:fv('cpl'),txLM:fv('txLeadMQL')/100,txMS:fv('txMQLSQL')/100,txSV:fv('txSQLVenda')/100,ticket:fv('ticket'),mc:fv('mc')/100,aliq:getAliq()};
+  const monI = parseInt(sv('mesInicio')||'1', 10);
   let cumV=0,cumM=0,cumC=0,cumL=0;
   for(let i=0;i<12;i++){
-    const inv=investimentos[i].total, m=calcMes(inv,params);
-    cumV+=m.valorVenda;cumM+=m.mcVal;cumC+=inv;cumL+=m.resLiq;
-    const mi=((monI-1+i)%12), ano=anoI+Math.floor((monI-1+i)/12);
-    meses.push({mesNome:MESES[mi],...m,inv,cumV,cumM,cumC,cumL,cumRoi:cumC>0?cumM/cumC:0});
+    const im = investimentos[i];
+    const m  = calcMes(im.fee, im.midia, params);
+    cumV+=m.valorVenda; cumM+=m.mcVal; cumC+=m.inv; cumL+=m.resLiq;
+    const mi = ((monI-1+i)%12);
+    meses.push({mesNome:MESES[mi],...m,cumV,cumM,cumC,cumL,cumRoi:cumC>0?cumM/cumC:0});
   }
-  const headers=['Mes','Custo_V4_Midia','Leads','CPL','MQLs','Custo_MQL','SQLs','Custo_SQL','Vendas','Custo_Venda','Tx_Funil','Valor_Venda','Valor_Acumulado','Res_MC_Mes','Res_MC_Acum','Custo_Acum','Res_Liq_Mes','Res_Liq_Acum','ROAS','ROI_Mes','ROI_Projeto'].join(',');
-  const rows=meses.map(m=>[m.mesNome,m.inv.toFixed(2),m.leads.toFixed(1),m.cpl.toFixed(2),m.mqls.toFixed(2),m.custoMQL.toFixed(2),m.sqls.toFixed(2),m.custoSQL.toFixed(2),m.vendas.toFixed(2),m.custoVenda.toFixed(2),(m.txFunil*100).toFixed(2),m.valorVenda.toFixed(2),m.cumV.toFixed(2),m.mcVal.toFixed(2),m.cumM.toFixed(2),m.cumC.toFixed(2),m.resLiq.toFixed(2),m.cumL.toFixed(2),m.roas.toFixed(4),m.roiMes.toFixed(4),m.cumRoi.toFixed(4)].join(','));
+  const headers=['Mes','Fee','Midia','Custo_Total','Leads','CPL','MQLs','Custo_MQL','SQLs','Custo_SQL','Vendas','Custo_Venda','Tx_Funil','Valor_Venda','Valor_Acumulado','Res_MC_Mes','Res_MC_Acum','Custo_Acum','Res_Liq_Mes','Res_Liq_Acum','ROAS','ROI_Mes','ROI_Projeto'].join(',');
+  const rows=meses.map(m=>[
+    m.mesNome, m.fee.toFixed(2), m.midia.toFixed(2), m.inv.toFixed(2),
+    m.leads.toFixed(1), m.cpl.toFixed(2),
+    m.mqls.toFixed(2), m.custoMQL.toFixed(2),
+    m.sqls.toFixed(2), m.custoSQL.toFixed(2),
+    m.vendas.toFixed(2), m.custoVenda.toFixed(2),
+    (m.txFunil*100).toFixed(2),
+    m.valorVenda.toFixed(2), m.cumV.toFixed(2),
+    m.mcVal.toFixed(2), m.cumM.toFixed(2),
+    m.cumC.toFixed(2),
+    m.resLiq.toFixed(2), m.cumL.toFixed(2),
+    m.roas.toFixed(4), m.roiMes.toFixed(4), m.cumRoi.toFixed(4)
+  ].join(','));
   const csv='\uFEFF'+[headers,...rows].join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
