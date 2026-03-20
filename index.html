@@ -87,7 +87,7 @@ label.lbl{display:block;font-size:10px;font-weight:700;text-transform:uppercase;
 .iw{position:relative}
 .ipfx,.isfx{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:11px;color:var(--sft);pointer-events:none}
 .ipfx{left:10px}.isfx{right:10px}
-input[type=number],input[type=text],select,input[type=month]{
+input[type=number],input[type=text],select{
   width:100%;background:#1a1a1a;border:1px solid #3a3a3a;border-radius:var(--r2);
   color:#ffffff;font-family:var(--body);font-size:14px;font-weight:500;padding:9px 12px;outline:none;
   transition:border-color .15s;-moz-appearance:textfield;appearance:textfield;
@@ -254,7 +254,20 @@ hr.dv{border:none;border-top:1px solid var(--brd);margin:16px 0}
       <hr class="dv">
       <div class="f">
         <label class="lbl">Mês de início</label>
-        <input type="month" id="mesInicio" value="2025-01" oninput="calcular()">
+        <select id="mesInicio" onchange="calcular()">
+          <option value="01">Janeiro</option>
+          <option value="02">Fevereiro</option>
+          <option value="03">Março</option>
+          <option value="04">Abril</option>
+          <option value="05" selected>Maio</option>
+          <option value="06">Junho</option>
+          <option value="07">Julho</option>
+          <option value="08">Agosto</option>
+          <option value="09">Setembro</option>
+          <option value="10">Outubro</option>
+          <option value="11">Novembro</option>
+          <option value="12">Dezembro</option>
+        </select>
       </div>
       <div class="f">
         <label class="lbl">Meta de vendas / mês</label>
@@ -718,8 +731,8 @@ function calcular() {
   // projeção 12 meses
   const meses = [];
   let cumValor=0, cumMC=0, cumCusto=0, cumLiq=0, cumRoi=0, paybackMes=-1;
-  const mesInicio = sv('mesInicio') || '2025-01';
-  const [anoI, monI] = mesInicio.split('-').map(Number);
+  const monI = parseInt(sv('mesInicio') || '1', 10);
+  const anoI = 2025; // year not shown, fixed reference
 
   for(let i=0;i<12;i++){
     const inv = investimentos[i].total;
@@ -1034,8 +1047,8 @@ function exportCSV() {
   const meses = [];
   const investimentos = getFeesMidias();
   const params = {leads:fv('leadsMes'),cpl:fv('cpl'),txLM:fv('txLeadMQL')/100,txMS:fv('txMQLSQL')/100,txSV:fv('txSQLVenda')/100,ticket:fv('ticket'),mc:fv('mc')/100,aliq:getAliq()};
-  const mesInicio = sv('mesInicio')||'2025-01';
-  const [anoI,monI]=mesInicio.split('-').map(Number);
+  const monI=parseInt(sv('mesInicio')||'1',10);
+  const anoI=2025;
   let cumV=0,cumM=0,cumC=0,cumL=0;
   for(let i=0;i<12;i++){
     const inv=investimentos[i].total, m=calcMes(inv,params);
