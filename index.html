@@ -288,12 +288,14 @@ hr.dv{border:none;border-top:1px solid var(--brd);margin:16px 0}
       <div class="ibox"><strong>Benchmarks V4 (da planilha):</strong> B2C — CPL R$24, Lead→MQL 40%, MQL→SQL 60%, SQL→Venda 25%, ticket R$5.000, MC 19,4% | B2B — CPL R$100, Lead→MQL 30%, MQL→SQL 50%, SQL→Venda 20%, ticket R$66.000, MC 12,2%</div>
 
       <div class="f">
-        <label class="lbl">Leads por mês</label>
-        <input type="number" id="leadsMes" value="277" step="10" oninput="calcular()">
-      </div>
-      <div class="f">
         <label class="lbl">Custo por Lead — CPL (R$)</label>
         <div class="iw"><span class="ipfx">R$</span><input type="number" id="cpl" class="has-pfx" value="27" step="1" oninput="calcular()"></div>
+        <div style="font-size:9px;color:var(--mut);margin-top:4px;font-family:var(--mono)">Leads = Verba de Mídia ÷ CPL — calculado automaticamente</div>
+      </div>
+      <div class="f">
+        <label class="lbl">Leads por mês <span style="color:var(--grn);font-size:9px;margin-left:4px">(automático)</span></label>
+        <div id="d-leads-calc" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:4px;padding:9px 12px;font-size:14px;font-weight:700;color:var(--grn);font-family:var(--body)">—</div>
+        <div style="font-size:9px;color:var(--mut);margin-top:3px;font-family:var(--mono)" id="d-leads-formula">Verba R$0 ÷ CPL R$0 = 0</div>
       </div>
       <div class="f">
         <label class="lbl">Taxa Conversão Lead → MQL (%)</label>
@@ -599,7 +601,6 @@ function setModo(modo, btn) {
   if(modo === 'b2b') {
     n('feeMensal').value = 5000;
     n('verbaMidia').value = 6000;
-    n('leadsMes').value = 60;
     n('cpl').value = 100;
     n('txLeadMQL').value = 30; syncSlider2('txLeadMQL');
     n('txMQLSQL').value = 50; syncSlider2('txMQLSQL');
@@ -609,7 +610,6 @@ function setModo(modo, btn) {
   } else {
     n('feeMensal').value = 5000;
     n('verbaMidia').value = 7500;
-    n('leadsMes').value = 277;
     n('cpl').value = 27;
     n('txLeadMQL').value = 100; syncSlider2('txLeadMQL');
     n('txMQLSQL').value = 20; syncSlider2('txMQLSQL');
@@ -667,139 +667,181 @@ function getInvestimentos() {
 function getFeesMidias() {
   const m = sv('modoInv');
   const fee = fv('feeMensal'), midia = fv('verbaMidia');
-  if(m==='fixo') return Array(12).fill({fee,midia,total:fee+midia});
-  if(m==='manual') { return Array.from({length:12},(_,i)=>{ const t=fv('mi'+i)||(fee+midia); return {fee,midia,total:t}; }); }
-  let v=fee+midia, pct=fv('crescPct')/100;
-  return Array.from({length:12},()=>{ const t=v; v*=(1+pct); return {fee,midia,total:t}; });
+  if(m==='fixo') return Array(12).fill({fee, midia, total:fee+midia});
+  if(m==='manual') {
+    return Array.from({length:12},(_,i)=>{
+      const t = fv('mi'+i)||(fee+midia);
+      // split manually: keep fee fixed, rest is midia
+      const midiaM = Math.max(0, t - fee);
+      return {fee, midia:midiaM, total:t};
+    });
+  }
+  // crescimento: scale both fee and midia proportionally
+  let t = fee+midia, pct = fv('crescPct')/100;
+  return Array.from({length:12},()=>{
+    const feeM = fee, midiaM = Math.max(0, t - feeM);
+    const row = {fee:feeM, midia:midiaM, total:t};
+    t *= (1+pct);
+    return row;
+  });
 }
 
 // ──────────────────────────────────────────────
-// CÁLCULO MENSAL
+// CÁLCULO MENSAL — fórmulas revisadas
+// Leads = Verba de Mídia / CPL
+// Custo/etapa = (Fee + Mídia) / qtd da etapa
+// ROAS = Valor Venda / (Fee + Mídia)
+// Res.MC = Valor Venda × MC%
+// Res.Líq = Res.MC - (Fee + Mídia) - Impostos
+// ROI Mês = Res.MC / (Fee + Mídia)
 // ──────────────────────────────────────────────
-function calcMes(inv, params) {
-  const {leads,cpl,txLM,txMS,txSV,ticket,mc,aliq} = params;
-  const mqls = leads * txLM;
-  const sqls = mqls * txMS;
-  const vendas = sqls * txSV;
-  const custoMQL = mqls>0 ? inv/mqls : 0;
-  const custoSQL = sqls>0 ? inv/sqls : 0;
-  const custoVenda = vendas>0 ? inv/vendas : 0;
-  const txFunil = leads>0 ? vendas/leads : 0;
+function calcMes(fee, midia, params) {
+  const {cpl, txLM, txMS, txSV, ticket, mc, aliq} = params;
+  const inv = fee + midia;                        // custo total V4 + mídia
+
+  // Leads = Verba de Mídia / CPL
+  const leads = cpl > 0 ? midia / cpl : 0;
+
+  // Funil de conversão
+  const mqls    = leads * txLM;
+  const sqls    = mqls  * txMS;
+  const vendas  = sqls  * txSV;
+
+  // Custos por etapa (custo total / quantidade)
+  const custoMQL   = mqls   > 0 ? inv / mqls   : 0;
+  const custoSQL   = sqls   > 0 ? inv / sqls   : 0;
+  const custoVenda = vendas > 0 ? inv / vendas : 0;
+
+  // Taxa de conversão do funil completo: Vendas / Leads
+  const txFunil = leads > 0 ? vendas / leads : 0;
+
+  // Receita e margens
   const valorVenda = vendas * ticket;
-  const mcVal = valorVenda * mc;
-  const imposto = aliq.mei>0 ? aliq.mei : valorVenda * aliq.pct;
-  const resLiq = mcVal - inv - imposto;
-  const roas = inv>0 ? valorVenda/inv : 0;
-  const roiMes = inv>0 ? mcVal/inv : 0;
-  return {mqls,sqls,vendas,custoMQL,custoSQL,custoVenda,txFunil,valorVenda,mcVal,imposto,resLiq,roas,roiMes,cpl};
+  const mcVal      = valorVenda * mc;
+
+  // Impostos
+  const imposto = aliq.mei > 0 ? aliq.mei : valorVenda * aliq.pct;
+
+  // Resultados
+  const resLiq  = mcVal - inv - imposto;
+  const roas    = inv > 0 ? valorVenda / inv : 0;
+  const roiMes  = inv > 0 ? mcVal / inv     : 0;
+
+  return {leads, mqls, sqls, vendas,
+          custoMQL, custoSQL, custoVenda,
+          txFunil, valorVenda, mcVal, imposto,
+          resLiq, roas, roiMes,
+          fee, midia, inv, cpl};
 }
 
 // ──────────────────────────────────────────────
 // CALCULAR PRINCIPAL
 // ──────────────────────────────────────────────
 function calcular() {
-  const leads = fv('leadsMes');
-  const cpl = fv('cpl');
-  const txLM = fv('txLeadMQL')/100;
-  const txMS = fv('txMQLSQL')/100;
-  const txSV = fv('txSQLVenda')/100;
+  const cpl   = fv('cpl');
+  const txLM  = fv('txLeadMQL') / 100;
+  const txMS  = fv('txMQLSQL')  / 100;
+  const txSV  = fv('txSQLVenda')/ 100;
   const ticket = fv('ticket');
-  const mc = fv('mc')/100;
-  const aliq = getAliq();
+  const mc    = fv('mc') / 100;
+  const aliq  = getAliq();
   const investimentos = getFeesMidias();
-  const params = {leads,cpl,txLM,txMS,txSV,ticket,mc,aliq};
+  const params = {cpl, txLM, txMS, txSV, ticket, mc, aliq};
 
-  // mês base
-  const m0 = calcMes(investimentos[0].total, params);
+  // Mês base (mês 1)
+  const im0 = investimentos[0];
+  const m0  = calcMes(im0.fee, im0.midia, params);
 
-  // update painel inputs
-  set('d-mql', fmt(m0.mqls,1));
-  set('d-sql', fmt(m0.sqls,1));
-  set('d-vendas', fmt(m0.vendas,2));
-  set('d-cmql', fmtR(m0.custoMQL));
-  set('d-csql', fmtR(m0.custoSQL));
-  set('d-cac', fmtR(m0.custoVenda));
-  set('d-custo-m1', fmtR(investimentos[0].total));
-  set('d-custo-12', fmtR(investimentos.reduce((a,x)=>a+x.total,0)));
-  set('d-rv', fmtR(ticket));
-  set('d-iv', fmtR(ticket*(aliq.pct||0) + (aliq.mei||0)));
-  set('d-mcv', fmtR(ticket*mc));
+  // Atualiza display de leads derivado
+  set('d-leads-calc', fmt(m0.leads, 1) + ' leads');
+  set('d-leads-formula',
+      'Verba R$' + fmt(im0.midia,2) + ' ÷ CPL R$' + fmt(cpl,2) + ' = ' + fmt(m0.leads,1));
 
-  // funil tab
-  updateFunil(m0, leads, investimentos[0].total);
+  // Atualiza painel de parâmetros
+  set('d-mql',    fmt(m0.mqls, 1));
+  set('d-sql',    fmt(m0.sqls, 1));
+  set('d-vendas', fmt(m0.vendas, 2));
+  set('d-cmql',   fmtR(m0.custoMQL));
+  set('d-csql',   fmtR(m0.custoSQL));
+  set('d-cac',    fmtR(m0.custoVenda));
+  set('d-custo-m1', fmtR(im0.total));
+  set('d-custo-12', fmtR(investimentos.reduce((a,x)=>a+x.total, 0)));
+  set('d-rv',  fmtR(ticket));
+  set('d-iv',  fmtR(ticket * (aliq.pct||0) + (aliq.mei||0)));
+  set('d-mcv', fmtR(ticket * mc));
 
-  // projeção 12 meses
+  // Funil visual
+  updateFunil(m0, investimentos[0].total);
+
+  // Projeção 12 meses
   const meses = [];
-  let cumValor=0, cumMC=0, cumCusto=0, cumLiq=0, cumRoi=0, paybackMes=-1;
+  let cumValor=0, cumMC=0, cumCusto=0, cumLiq=0, paybackMes=-1;
   const monI = parseInt(sv('mesInicio') || '1', 10);
-  const anoI = 2025; // year not shown, fixed reference
 
-  for(let i=0;i<12;i++){
-    const inv = investimentos[i].total;
-    const m = calcMes(inv, params);
-    cumValor += m.valorVenda;
-    cumMC += m.mcVal;
-    cumCusto += inv;
-    cumLiq += m.resLiq;
-    cumRoi = cumCusto>0 ? cumMC/cumCusto : 0;
-    if(cumLiq>=0 && paybackMes<0) paybackMes=i+1;
-    const mi = ((monI-1+i)%12);
-    const ano = anoI + Math.floor((monI-1+i)/12);
-    meses.push({...m, inv, cumValor, cumMC, cumCusto, cumLiq, cumRoi, mesNome: MESES[mi], idx:i+1});
+  for(let i=0; i<12; i++){
+    const im  = investimentos[i];
+    const m   = calcMes(im.fee, im.midia, params);
+    cumValor  += m.valorVenda;
+    cumMC     += m.mcVal;
+    cumCusto  += m.inv;
+    cumLiq    += m.resLiq;
+    const cumRoi = cumCusto > 0 ? cumMC / cumCusto : 0;
+    if(cumLiq >= 0 && paybackMes < 0) paybackMes = i + 1;
+    const mi = ((monI - 1 + i) % 12);
+    meses.push({...m, cumValor, cumMC, cumCusto, cumLiq, cumRoi,
+                mesNome: MESES[mi], idx: i+1});
   }
 
-  // KPIs
-  const totVd = meses.reduce((a,m)=>a+m.vendas,0);
-  const avgCAC = totVd>0 ? meses.reduce((a,m)=>a+m.inv,0)/totVd : 0;
-  const avgCPL = meses.reduce((a,m)=>a+m.mqls,0)>0 ? meses.reduce((a,m)=>a+m.inv,0)/meses.reduce((a,m)=>a+m.mqls,0) : 0;
-  const totInv = meses.reduce((a,m)=>a+m.inv,0);
-  const totValor = meses.reduce((a,m)=>a+m.valorVenda,0);
-  const totLiq = meses.reduce((a,m)=>a+m.resLiq,0);
-  const avgRoas = totInv>0 ? totValor/totInv : 0;
-  const roiProj = totInv>0 ? meses[11].cumMC/meses[11].cumCusto : 0;
+  // KPIs acumulados
+  const totVd    = meses.reduce((a,m)=>a+m.vendas, 0);
+  const totLeads = meses.reduce((a,m)=>a+m.leads,  0);
+  const totMQL   = meses.reduce((a,m)=>a+m.mqls,   0);
+  const totInv   = meses.reduce((a,m)=>a+m.inv,    0);
+  const totValor = meses.reduce((a,m)=>a+m.valorVenda, 0);
+  const totLiq   = meses.reduce((a,m)=>a+m.resLiq, 0);
+  const avgCAC   = totVd  > 0 ? totInv / totVd  : 0;
+  const avgCPL   = totLeads > 0 ? totInv / totLeads : 0;
+  const avgRoas  = totInv > 0 ? totValor / totInv : 0;
+  const roiProj  = meses[11].cumCusto > 0 ? meses[11].cumMC / meses[11].cumCusto : 0;
 
+  // KPI strip
   set('k0', fmtR(totLiq));
-  n('k0').className = 'kv ' + (totLiq>=0?'g':'r');
+  n('k0').className = 'kv ' + (totLiq >= 0 ? 'g' : 'r');
   set('k1', fmtR(totValor));
-  set('k1s', fmt(totVd,1)+' vendas');
+  set('k1s', fmt(totVd, 1) + ' vendas');
   set('k2', fmtX(avgRoas));
   set('k3', fmtX(roiProj));
   set('k4', fmtR(avgCAC));
   set('k5', fmtR(cpl));
-  set('k6', paybackMes>0 ? 'Mês '+paybackMes : '>12M');
-  set('k6s', paybackMes>0 ? 'liq. acumulado ≥ 0' : 'sem payback em 12M');
-  set('payback-label', paybackMes>0 ? '✅ Payback: Mês '+paybackMes : '⏳ Payback > 12M');
+  set('k6', paybackMes > 0 ? 'Mês ' + paybackMes : '>12M');
+  set('k6s', paybackMes > 0 ? 'liq. acumulado ≥ 0' : 'sem payback em 12M');
+  set('payback-label', paybackMes > 0 ? '✅ Payback: Mês ' + paybackMes : '⏳ Payback > 12M');
 
-  // render table
   renderTabela(meses, paybackMes, fv('metaVendas'));
-
-  // render charts
   renderCharts(meses);
-
-  // analise tab
   renderAnalise(meses, params, aliq, totVd, avgCAC, totInv, totValor, totLiq, avgRoas, roiProj);
 
-  // break-even CVR
-  const beP = ticket>0 ? (4.94/ticket)*100 : 0;
-  const beR = ticket>0 ? (3.60/ticket)*100 : 0;
-  const beO = ticket>0 ? (2.73/ticket)*100 : 0;
-  set('be-pess', fmtPct(beP,3));
-  set('be-real', fmtPct(beR,3));
-  set('be-otim', fmtPct(beO,3));
+  // Break-even de CVR
+  const beP = ticket > 0 ? (4.94 / ticket) * 100 : 0;
+  const beR = ticket > 0 ? (3.60 / ticket) * 100 : 0;
+  const beO = ticket > 0 ? (2.73 / ticket) * 100 : 0;
+  set('be-pess', fmtPct(beP, 3));
+  set('be-real', fmtPct(beR, 3));
+  set('be-otim', fmtPct(beO, 3));
 }
 
 // ──────────────────────────────────────────────
 // FUNIL VISUAL
 // ──────────────────────────────────────────────
-function updateFunil(m, leads, inv) {
-  const max = leads||1;
+function updateFunil(m, inv) {
+  const max = m.leads||1;
   function upFbar(id, val, pctBase) {
     const bar = n(id); if(!bar) return;
     const pct = Math.max((val/max)*100, 2);
     bar.style.width = pct+'%';
     bar.textContent = fmt(val,1);
   }
-  upFbar('fb-lead', leads);
+  upFbar('fb-lead', m.leads);
   upFbar('fb-mql', m.mqls);
   upFbar('fb-sql', m.sqls);
   upFbar('fb-vd', m.vendas);
@@ -811,8 +853,10 @@ function updateFunil(m, leads, inv) {
   set('d-cpa', fmtR(m.custoVenda));
 
   // funil tab metrics
-  set('fm-leads', fmt(leads,0));
+  set('fm-leads', fmt(m.leads,0));
   set('fm-cpl', fmtR(fv('cpl')));
+  // Derived CPL confirmation: midia/leads
+  const derivedCPL = m.leads > 0 ? m.midia / m.leads : 0;
   set('fm-mqls', fmt(m.mqls,1));
   set('fm-cmql', fmtR(m.custoMQL));
   set('fm-sqls', fmt(m.sqls,1));
@@ -845,7 +889,7 @@ function renderTabela(meses, payback, meta) {
     html += `<tr class="${isBE?'brk':''}">
       <td>${m.mesNome} ${isBE?'<span class="tag-be">BE</span>':''} ${isGoal?'<span class="tag-be" style="background:rgba(245,158,11,.15);color:var(--gld);border-color:rgba(245,158,11,.2)">Meta</span>':''}</td>
       <td class="gold">${fmtR(m.inv)}</td>
-      <td>${fmt(fv('leadsMes'),0)}</td>
+      <td>${fmt(m.leads,1)}</td>
       <td>${fmtR(fv('cpl'))}</td>
       <td>${fmt(m.mqls,1)}</td>
       <td>${fmtR(m.custoMQL)}</td>
@@ -946,7 +990,7 @@ function renderCharts(meses) {
   ]);
 
   mkChart('ch-funil','bar',labels,[
-    {label:'Leads',data:meses.map(()=>fv('leadsMes')),backgroundColor:'rgba(59,130,246,.45)',borderColor:'rgba(59,130,246,.8)',borderWidth:1},
+    {label:'Leads',data:meses.map(m=>+m.leads.toFixed(1)),backgroundColor:'rgba(59,130,246,.45)',borderColor:'rgba(59,130,246,.8)',borderWidth:1},
     {label:'MQLs',data:meses.map(m=>+m.mqls.toFixed(1)),backgroundColor:'rgba(245,158,11,.45)',borderColor:'rgba(245,158,11,.8)',borderWidth:1},
     {label:'SQLs',data:meses.map(m=>+m.sqls.toFixed(1)),backgroundColor:'rgba(245,158,11,.25)',borderColor:'rgba(245,158,11,.5)',borderWidth:1},
     {label:'Vendas',data:meses.map(m=>+m.vendas.toFixed(2)),backgroundColor:'rgba(34,197,94,.55)',borderColor:'rgba(34,197,94,.9)',borderWidth:1}
@@ -1046,7 +1090,7 @@ function trocarTab(id, btn) {
 function exportCSV() {
   const meses = [];
   const investimentos = getFeesMidias();
-  const params = {leads:fv('leadsMes'),cpl:fv('cpl'),txLM:fv('txLeadMQL')/100,txMS:fv('txMQLSQL')/100,txSV:fv('txSQLVenda')/100,ticket:fv('ticket'),mc:fv('mc')/100,aliq:getAliq()};
+  const params = {leads:m.leads.toFixed(1),cpl:fv('cpl'),txLM:fv('txLeadMQL')/100,txMS:fv('txMQLSQL')/100,txSV:fv('txSQLVenda')/100,ticket:fv('ticket'),mc:fv('mc')/100,aliq:getAliq()};
   const monI=parseInt(sv('mesInicio')||'1',10);
   const anoI=2025;
   let cumV=0,cumM=0,cumC=0,cumL=0;
@@ -1057,7 +1101,7 @@ function exportCSV() {
     meses.push({mesNome:MESES[mi],...m,inv,cumV,cumM,cumC,cumL,cumRoi:cumC>0?cumM/cumC:0});
   }
   const headers=['Mes','Custo_V4_Midia','Leads','CPL','MQLs','Custo_MQL','SQLs','Custo_SQL','Vendas','Custo_Venda','Tx_Funil','Valor_Venda','Valor_Acumulado','Res_MC_Mes','Res_MC_Acum','Custo_Acum','Res_Liq_Mes','Res_Liq_Acum','ROAS','ROI_Mes','ROI_Projeto'].join(',');
-  const rows=meses.map(m=>[m.mesNome,m.inv.toFixed(2),fv('leadsMes'),m.cpl.toFixed(2),m.mqls.toFixed(2),m.custoMQL.toFixed(2),m.sqls.toFixed(2),m.custoSQL.toFixed(2),m.vendas.toFixed(2),m.custoVenda.toFixed(2),(m.txFunil*100).toFixed(2),m.valorVenda.toFixed(2),m.cumV.toFixed(2),m.mcVal.toFixed(2),m.cumM.toFixed(2),m.cumC.toFixed(2),m.resLiq.toFixed(2),m.cumL.toFixed(2),m.roas.toFixed(4),m.roiMes.toFixed(4),m.cumRoi.toFixed(4)].join(','));
+  const rows=meses.map(m=>[m.mesNome,m.inv.toFixed(2),m.leads.toFixed(1),m.cpl.toFixed(2),m.mqls.toFixed(2),m.custoMQL.toFixed(2),m.sqls.toFixed(2),m.custoSQL.toFixed(2),m.vendas.toFixed(2),m.custoVenda.toFixed(2),(m.txFunil*100).toFixed(2),m.valorVenda.toFixed(2),m.cumV.toFixed(2),m.mcVal.toFixed(2),m.cumM.toFixed(2),m.cumC.toFixed(2),m.resLiq.toFixed(2),m.cumL.toFixed(2),m.roas.toFixed(4),m.roiMes.toFixed(4),m.cumRoi.toFixed(4)].join(','));
   const csv='\uFEFF'+[headers,...rows].join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
@@ -1069,7 +1113,7 @@ function exportCSV() {
 // ──────────────────────────────────────────────
 function resetar() {
   n('feeMensal').value=5000; n('verbaMidia').value=7500;
-  n('leadsMes').value=277; n('cpl').value=27;
+  n('cpl').value=27;
   n('txLeadMQL').value=100;syncSlider2('txLeadMQL');
   n('txMQLSQL').value=20;syncSlider2('txMQLSQL');
   n('txSQLVenda').value=25;syncSlider2('txSQLVenda');
